@@ -6,6 +6,7 @@ import os
 import multiprocessing
 import shutil
 import tensorflow as tf
+import tensorflow.contrib.learn as ln
 
 
 config = {
@@ -140,18 +141,10 @@ def create_model(inp_h, inp_w, inp_c, conv, fc):
         h_fc = [tf.reshape(h[-1], [-1, conv_out_neurons])]
         for i in xrange(len(_fc)):
             h_fc.append(tf.tanh(tf.matmul(h_fc[-1], fc_weights[i]) + fc_biases[i]))
+            if dropout:
+                h_fc.append(ln.ops.dropout(h_fc[-1], 0.5))
 
-        h_conv_flats = [tf.reshape(h_conv[i], [-1, (12-conv_part[i][0])*(25-conv_part[i][1])*conv_part[i][2]]) for i in xrange(len(conv_part))]
-
-        h_flattened = tf.concat(1, h_conv_flats + [h_mlp[-1]])
-
-        h_combine = [h_flattened]
-        for i in xrange(len(combined_full)-1):
-            h_combine.append(tf.tanh(tf.matmul(h_combine[-1], combine_weights[i]) + combine_biases[i]))
-            # if i < len(combine_part)-1:
-            #     h_combine.append(skf.ops.dropout(h_combine[-1], dropout))
-
-        softmax = tf.nn.softmax(h_combine[-1])
+        softmax = tf.nn.softmax(h_fc[-1])
         entropy = -tf.reduce_mean(y*tf.log(tf.clip_by_value(softmax, 1e-10, 1.0)))
 
         # tmpVars = tf.Variable(tf.truncated_normal([276, 2], stddev=0.1))
