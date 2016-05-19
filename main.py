@@ -31,6 +31,12 @@ config = {
         "img_small": "/home/boocheck/datasets/retinopathy/small",
         "img_balanced": "/home/boocheck/datasets/retinopathy/balanced"
     },
+    "spark2.opi.org.pl": {
+        "labels": "/home/boocheck/datasets/retinopathy/trainLabels.csv",
+        "img_full": "/home/boocheck/datasets/retinopathy/full",
+        "img_small": "/home/boocheck/datasets/retinopathy/small",
+        "img_balanced": "/home/boocheck/datasets/retinopathy/balanced"
+    }
 }
 
 
@@ -119,7 +125,7 @@ def read_all_data(return_dummy = False):
         dummy_res_images = res_images[indices, :]
         dummy_res_labels = res_labels[indices]
         dummy_res_labels_onehot = res_labels_onehot[indices, :]
-        return res_images, res_labels, res_labels_onehot, dummy_res_images, dummy_res_labels, dummy_res_labels_onehot
+        return res_images.astype(float)/255.0, res_labels, res_labels_onehot, dummy_res_images.astype(float)/255.0, dummy_res_labels, dummy_res_labels_onehot
 
     return res_images, res_labels, res_labels_onehot
 
@@ -182,9 +188,16 @@ if __name__ == '__main__':
     min_max_scaler.fit_transform(data)
     min_max_scaler.transform(dummy_data)
 
+
+
+    print data.shape
+    print data
+    print data.dtype
+    # print data.tolist()[0:1, :100]
     print dummy_data.shape
     print dummy_data
-    print dummy_data.tolist()[:3]
+    print dummy_data.dtype
+    # print dummy_data.tolist()[0:1, :100]
     print dummy_labels.shape
     print dummy_labels
 
@@ -192,23 +205,10 @@ if __name__ == '__main__':
         print "loading estimator..."
         cls = ln.TensorFlowEstimator.restore("cls.dump")
         print "estimator loaded"
-        for i in xrange(1000):
-            print "i={}".format(i)
-            print "fitting..."
-            cls.fit(dummy_data, dummy_labels)
-            print "fitted"
-            print "predicting..."
-            predicted = cls.predict(dummy_data)
-            print "predicted"
-            print "acc={}".format(me.accuracy_score(dummy_labels, predicted))
-            print "confusion matrix"
-            print me.confusion_matrix(dummy_labels, predicted)
-            print "saving..."
-            cls.save("cls.dump")
-            print "saved"
     else:
         print "creating model..."
-        cls = ln.TensorFlowEstimator(model_fn = create_model(128,128,3, [[7,7,16], [7,7,32], [7,7,64], [7,7,64]], [200, 5]), n_classes=5, continue_training=True, learning_rate=0.001, optimizer="Adam", steps=5)
+
+        cls = ln.TensorFlowEstimator(model_fn = create_model(128,128,3, [[5,5,32], [5,5,64], [6,6,64]], [100, 5]), n_classes=5, continue_training=True, learning_rate=0.001, optimizer="Adam", steps=1, batch_size=32)
         print "model created"
         print "fitting..."
         cls.fit(dummy_data, dummy_labels)
@@ -216,6 +216,22 @@ if __name__ == '__main__':
         print "saving..."
         cls.save("cls.dump")
         print "saved"
+
+    for i in xrange(1000):
+            print "i={}".format(i)
+            print "fitting..."
+            cls.partial_fit(dummy_data, dummy_labels)
+            print "fitted"
+            print "predicting..."
+            predicted = cls.predict(dummy_data)
+            print "predicted"
+            # print cls.predict_proba(data)
+            print "acc={}".format(me.accuracy_score(dummy_labels, predicted))
+            print "confusion matrix"
+            print me.confusion_matrix(dummy_labels, predicted)
+            print "saving..."
+            cls.save("cls.dump")
+            print "saved"
 
 
 
