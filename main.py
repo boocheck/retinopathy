@@ -197,7 +197,7 @@ if __name__ == '__main__':
         print "estimator loaded"
     else:
         print "creating model..."
-        cls = ln.TensorFlowEstimator(model_fn = create_model(128,128,3, [[5,5,32], [5,5,64], [6,6,64]], [100, 5], True), n_classes=5, continue_training=True, learning_rate=0.00001, optimizer="Adam", steps=100, batch_size=32)
+        cls = ln.TensorFlowEstimator(model_fn = create_model(128,128,3, [[5,5,32], [5,5,64], [6,6,64]], [500, 5], True), n_classes=5, continue_training=True, learning_rate=0.0001, optimizer="RMSProp", steps=100, batch_size=128)
         print "model created"
         print "fitting..."
         cls.fit(data, labels)
