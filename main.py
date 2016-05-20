@@ -12,12 +12,11 @@ import sklearn.preprocessing as pp
 
 
 config = {
-    "home_host": {
+    "PrzemoLap": {
         "labels": "D:\\Datasets\\retinopathy\\trainLabels.csv",
         "img_full": "D:\\Datasets\\retinopathy\\trainLabels.csv",
         "img_small": "D:\\Datasets\\retinopathy\\trainLabels.csv",
         "img_balanced": "D:\\Datasets\\retinopathy\\trainLabels.csv"
-
     },
     "LIS-BUCZKOWSKI": {
         "labels": "D:\\datasets\\retinopathy\\trainLabels.csv",
@@ -125,7 +124,8 @@ def read_all_data(return_dummy = False):
         dummy_res_images = res_images[indices, :]
         dummy_res_labels = res_labels[indices]
         dummy_res_labels_onehot = res_labels_onehot[indices, :]
-        return res_images.astype(float)/255.0, res_labels, res_labels_onehot, dummy_res_images.astype(float)/255.0, dummy_res_labels, dummy_res_labels_onehot
+
+        return (res_images.astype(float)/255.0)-0.5, res_labels, res_labels_onehot, (dummy_res_images.astype(float)/255.0)-0.5, dummy_res_labels, dummy_res_labels_onehot
 
     return res_images, res_labels, res_labels_onehot
 
@@ -159,12 +159,12 @@ def create_model(inp_h, inp_w, inp_c, conv, fc, dropout=False):
 
         h = [tf.reshape(X, [-1, inp_h, inp_w, inp_c])]
         for i in xrange(len(conv_weights)):
-            h.append(tf.nn.relu(tf.nn.conv2d(h[-1], conv_weights[i], strides=[1, 1, 1, 1], padding='VALID') + conv_biases[i]))
+            h.append(tf.tanh(tf.nn.conv2d(h[-1], conv_weights[i], strides=[1, 1, 1, 1], padding='VALID') + conv_biases[i]))
             h.append(tf.nn.max_pool(h[-1], ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='VALID'))
 
         h_fc = [tf.reshape(h[-1], [-1, conv_out_neurons])]
         for i in xrange(len(_fc)):
-            h_fc.append(tf.nn.relu(tf.matmul(h_fc[-1], fc_weights[i]) + fc_biases[i]))
+            h_fc.append(tf.tanh(tf.matmul(h_fc[-1], fc_weights[i]) + fc_biases[i]))
             if dropout and i < len(_fc)-1:
                 h_fc.append(ln.ops.dropout(h_fc[-1], 0.5))
 
@@ -180,26 +180,16 @@ if __name__ == '__main__':
     filenames, labels = labels_list(conf("labels"))
     # job_pick_and_move(conf("img_small"), conf("img_balanced"), filenames, labels)
     print "loading dataset..."
-    data, labels, onehot, dummy_data, dummy_labels, dummy_onehot = read_all_data(True)
+    full_data, full_labels, full_onehot, dummy_data, dummy_labels, dummy_onehot = read_all_data(True)
     print "dataset loaded"
 
-    print "preprocessing dataset..."
-    min_max_scaler = pp.MinMaxScaler((0,1), False)
-    min_max_scaler.fit_transform(data)
-    min_max_scaler.transform(dummy_data)
+    # print "preprocessing dataset..."
+    # min_max_scaler = pp.MinMaxScaler((0,1), False)
+    # min_max_scaler.fit_transform(data)
+    # min_max_scaler.transform(dummy_data)
 
-
-
-    print data.shape
-    print data
-    print data.dtype
-    # print data.tolist()[0:1, :100]
-    print dummy_data.shape
-    print dummy_data
-    print dummy_data.dtype
-    # print dummy_data.tolist()[0:1, :100]
-    print dummy_labels.shape
-    print dummy_labels
+    # data, labels, onehot = dummy_data, dummy_labels, dummy_onehot
+    data, labels, onehot = full_data, full_labels, full_onehot
 
     if os.path.isdir("cls.dump"):
         print "loading estimator..."
@@ -207,11 +197,10 @@ if __name__ == '__main__':
         print "estimator loaded"
     else:
         print "creating model..."
-
-        cls = ln.TensorFlowEstimator(model_fn = create_model(128,128,3, [[5,5,32], [5,5,64], [6,6,64]], [100, 5]), n_classes=5, continue_training=True, learning_rate=0.001, optimizer="Adam", steps=1, batch_size=32)
+        cls = ln.TensorFlowEstimator(model_fn = create_model(128,128,3, [[5,5,32], [5,5,64], [6,6,64]], [100, 5], True), n_classes=5, continue_training=True, learning_rate=0.00001, optimizer="Adam", steps=100, batch_size=32)
         print "model created"
         print "fitting..."
-        cls.fit(dummy_data, dummy_labels)
+        cls.fit(data, labels)
         print "fitted"
         print "saving..."
         cls.save("cls.dump")
@@ -220,15 +209,15 @@ if __name__ == '__main__':
     for i in xrange(1000):
             print "i={}".format(i)
             print "fitting..."
-            cls.partial_fit(dummy_data, dummy_labels)
+            cls.partial_fit(data, labels)
             print "fitted"
             print "predicting..."
-            predicted = cls.predict(dummy_data)
+            predicted = cls.predict(data)
             print "predicted"
             # print cls.predict_proba(data)
-            print "acc={}".format(me.accuracy_score(dummy_labels, predicted))
+            print "acc={}".format(me.accuracy_score(labels, predicted))
             print "confusion matrix"
-            print me.confusion_matrix(dummy_labels, predicted)
+            print me.confusion_matrix(labels, predicted)
             print "saving..."
             cls.save("cls.dump")
             print "saved"
