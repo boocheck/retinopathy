@@ -9,6 +9,7 @@ import tensorflow as tf
 import tensorflow.contrib.learn as ln
 import sklearn.metrics as me
 import sklearn.preprocessing as pp
+from sklearn.cross_validation import train_test_split
 
 
 config = {
@@ -31,6 +32,12 @@ config = {
         "img_balanced": "/home/boocheck/datasets/retinopathy/balanced"
     },
     "spark2.opi.org.pl": {
+        "labels": "/home/boocheck/datasets/retinopathy/trainLabels.csv",
+        "img_full": "/home/boocheck/datasets/retinopathy/full",
+        "img_small": "/home/boocheck/datasets/retinopathy/small",
+        "img_balanced": "/home/boocheck/datasets/retinopathy/balanced"
+    },
+    "spark1.opi.org.pl": {
         "labels": "/home/boocheck/datasets/retinopathy/trainLabels.csv",
         "img_full": "/home/boocheck/datasets/retinopathy/full",
         "img_small": "/home/boocheck/datasets/retinopathy/small",
@@ -74,8 +81,8 @@ def resize_single_image(full_path_src, full_path_dst, shape_dst):
 
 
 def curried_resize(arg):
-        resize_single_image(arg[0], arg[1], arg[2])
-        return None
+    resize_single_image(arg[0], arg[1], arg[2])
+    return None
 
 
 def job_resize(path_src, path_dst, shape_dst, processess = 1):
@@ -103,7 +110,7 @@ def job_pick_and_move(path_src, path_dst, filenames, labels):
             shutil.copy(os.path.join(path_src, s+".png"), os.path.join(path_dst, s + "_" + str(i) + ".png"))
 
 
-def read_all_data(return_dummy = False):
+def read_all_data(dummy_size = 10, return_dummy = False):
     src_path = conf("img_balanced")
 
     images = []
@@ -120,34 +127,72 @@ def read_all_data(return_dummy = False):
     res_labels_onehot[np.arange(len(labels)), res_labels]=1
 
     if return_dummy:
-        uniq, indices = np.unique(res_labels, return_index=True)
-        dummy_res_images = res_images[indices, :]
-        dummy_res_labels = res_labels[indices]
-        dummy_res_labels_onehot = res_labels_onehot[indices, :]
+        dummy_images = []
+        dummy_labels = []
+        dummy_labels_onehot = []
+        for i in xrange(5):
+            dummy_indices_i = (res_labels == i).nonzero()[0][:dummy_size]
+            print "indices"
+            print dummy_indices_i.shape
+            print dummy_indices_i
+
+            dummy_images.append(res_images[dummy_indices_i, :])
+            print "images"
+            print dummy_images[-1].shape
+            print dummy_images[-1]
+
+            dummy_labels.extend(res_labels[dummy_indices_i].tolist())
+            print "labels"
+            print res_labels[dummy_indices_i].shape
+            print res_labels[dummy_indices_i]
+
+            dummy_labels_onehot.append(res_labels_onehot[dummy_indices_i, :])
+            print "onehot"
+            print dummy_labels_onehot[-1].shape
+            print dummy_labels_onehot[-1]
+
+        dummy_res_images = np.concatenate(dummy_images, 0)
+        dummy_res_labels = np.array(dummy_labels)
+        dummy_res_labels_onehot = np.concatenate(dummy_labels_onehot, 0)
+
+        # uniq, indices = np.unique(res_labels, return_index=True)
+        # dummy_res_images = res_images[indices, :]
+        # dummy_res_labels = res_labels[indices]
+        # dummy_res_labels_onehot = res_labels_onehot[indices, :]
 
         return (res_images.astype(float)/255.0)-0.5, res_labels, res_labels_onehot, (dummy_res_images.astype(float)/255.0)-0.5, dummy_res_labels, dummy_res_labels_onehot
 
-    return res_images, res_labels, res_labels_onehot
+    return (res_images.astype(float)/255.0)-0.5, res_labels, res_labels_onehot
 
 def create_model(inp_h, inp_w, inp_c, conv, fc, dropout=False):
     def model(X, y):
 
-        keep_prob = tf.placeholder("float", [], "keep_prob")
+        keep_prob = tf.constant(0.5)
 
-        _conv = [[conv[0][0], conv[0][1], inp_c, conv[0][2]]]
+        if len(conv) > 0:
+            _conv = [[conv[0][0], conv[0][1], inp_c, conv[0][2]]]
+        else:
+            _conv = []
+
         for i in xrange(1, len(conv)):
             _conv.append([conv[i][0], conv[i][1], _conv[i-1][3], conv[i][2]])
 
         conv_out_h = inp_h
         conv_out_w = inp_w
+        conv_out_c = inp_c
         for layer in _conv:
             conv_out_h = conv_out_h - layer[0] + 1
             conv_out_w = conv_out_w - layer[1] + 1
             conv_out_h /= 2
             conv_out_w /= 2
-        conv_out_neurons = conv_out_h * conv_out_w * _conv[-1][3]
+            conv_out_c = layer[3]
+        conv_out_neurons = conv_out_h * conv_out_w * conv_out_c
 
-        _fc = [[conv_out_neurons, fc[0]]]
+        if len(fc) > 1:
+            _fc = [[conv_out_neurons, fc[0]]]
+        else:
+            _fc = []
+
         for i in xrange(1, len(fc)):
             _fc.append([_fc[i-1][1], fc[i]])
 
@@ -159,19 +204,22 @@ def create_model(inp_h, inp_w, inp_c, conv, fc, dropout=False):
 
         h = [tf.reshape(X, [-1, inp_h, inp_w, inp_c])]
         for i in xrange(len(conv_weights)):
-            h.append(tf.tanh(tf.nn.conv2d(h[-1], conv_weights[i], strides=[1, 1, 1, 1], padding='VALID') + conv_biases[i]))
+            h.append(tf.nn.relu(tf.nn.conv2d(h[-1], conv_weights[i], strides=[1, 1, 1, 1], padding='VALID') + conv_biases[i]))
             h.append(tf.nn.max_pool(h[-1], ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='VALID'))
 
         h_fc = [tf.reshape(h[-1], [-1, conv_out_neurons])]
         for i in xrange(len(_fc)):
-            h_fc.append(tf.tanh(tf.matmul(h_fc[-1], fc_weights[i]) + fc_biases[i]))
+            if i < len(_fc)-1:
+                h_fc.append(tf.nn.relu(tf.matmul(h_fc[-1], fc_weights[i]) + fc_biases[i]))
+            else:
+                h_fc.append(tf.nn.softmax(tf.matmul(h_fc[-1], fc_weights[i]) + fc_biases[i]))
+
             if dropout and i < len(_fc)-1:
-                h_fc.append(ln.ops.dropout(h_fc[-1], 0.5))
+                h_fc.append(ln.ops.dropout(h_fc[-1], keep_prob, name="dropout"+str(i)))
 
-        softmax = tf.nn.softmax(h_fc[-1])
-        entropy = -tf.reduce_mean(y*tf.log(tf.clip_by_value(softmax, 1e-10, 1.0)))
+        entropy = -tf.reduce_mean(y*tf.log(tf.clip_by_value(h_fc[-1], 1e-10, 1.0)))
 
-        return softmax, entropy
+        return h_fc[-1], entropy
 
     return model
 
@@ -180,7 +228,7 @@ if __name__ == '__main__':
     filenames, labels = labels_list(conf("labels"))
     # job_pick_and_move(conf("img_small"), conf("img_balanced"), filenames, labels)
     print "loading dataset..."
-    full_data, full_labels, full_onehot, dummy_data, dummy_labels, dummy_onehot = read_all_data(True)
+    full_data, full_labels, full_onehot, dummy_data, dummy_labels, dummy_onehot = read_all_data(dummy_size=10, return_dummy=True)
     print "dataset loaded"
 
     # print "preprocessing dataset..."
@@ -191,16 +239,28 @@ if __name__ == '__main__':
     # data, labels, onehot = dummy_data, dummy_labels, dummy_onehot
     data, labels, onehot = full_data, full_labels, full_onehot
 
+    train_data, test_data, train_labels, test_labels = train_test_split(data, labels, train_size=0.9, random_state=42)
+
+    print data.shape
+    print data
+    print labels.shape
+    print labels
+    print onehot.shape
+    print onehot
+
     if os.path.isdir("cls.dump"):
         print "loading estimator..."
         cls = ln.TensorFlowEstimator.restore("cls.dump")
         print "estimator loaded"
     else:
         print "creating model..."
-        cls = ln.TensorFlowEstimator(model_fn = create_model(128,128,3, [[5,5,32], [5,5,64], [6,6,64]], [500, 5], True), n_classes=5, continue_training=True, learning_rate=0.0001, optimizer="RMSProp", steps=100, batch_size=128)
+        #
+        cls = ln.TensorFlowEstimator(model_fn = create_model(128,128,3, [[3, 3, 16], [4, 4, 32], [5, 5, 64]], [192, 5], True),
+                                     n_classes=5, continue_training=True, learning_rate=10e-4, optimizer="RMSProp", steps=100, batch_size=64, config=ln.RunConfig(num_cores=24))
+        # cls = ln.dnn.TensorFlowDNNClassifier([3500, 5], n_classes=5, continue_training=True, steps=100, batch_size=128)
         print "model created"
         print "fitting..."
-        cls.fit(data, labels)
+        cls.fit(train_data, train_labels)
         print "fitted"
         print "saving..."
         cls.save("cls.dump")
@@ -209,15 +269,15 @@ if __name__ == '__main__':
     for i in xrange(1000):
             print "i={}".format(i)
             print "fitting..."
-            cls.partial_fit(data, labels)
+            cls.partial_fit(train_data, train_labels)
             print "fitted"
             print "predicting..."
-            predicted = cls.predict(data)
+            predicted = cls.predict(test_data)
             print "predicted"
             # print cls.predict_proba(data)
-            print "acc={}".format(me.accuracy_score(labels, predicted))
+            print "acc={}".format(me.accuracy_score(test_labels, predicted))
             print "confusion matrix"
-            print me.confusion_matrix(labels, predicted)
+            print me.confusion_matrix(test_labels, predicted)
             print "saving..."
             cls.save("cls.dump")
             print "saved"
