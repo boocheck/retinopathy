@@ -10,6 +10,7 @@ import tensorflow.contrib.learn as ln
 import sklearn.metrics as me
 import sklearn.preprocessing as pp
 from sklearn.cross_validation import train_test_split
+import random
 
 
 config = {
@@ -110,7 +111,7 @@ def job_pick_and_move(path_src, path_dst, filenames, labels):
             shutil.copy(os.path.join(path_src, s+".png"), os.path.join(path_dst, s + "_" + str(i) + ".png"))
 
 
-def read_all_data(dummy_size = 10, return_dummy = False):
+def read_all_data(dummy_size = 0):
     src_path = conf("img_balanced")
 
     images = []
@@ -126,7 +127,7 @@ def read_all_data(dummy_size = 10, return_dummy = False):
     res_labels_onehot = np.zeros([len(labels), np.max(res_labels)+1])
     res_labels_onehot[np.arange(len(labels)), res_labels]=1
 
-    if return_dummy:
+    if dummy_size > 0:
         dummy_images = []
         dummy_labels = []
         dummy_labels_onehot = []
@@ -224,11 +225,45 @@ def create_model(inp_h, inp_w, inp_c, conv, fc, dropout=False):
     return model
 
 
+def random_transform(image, crop_shape, flip=True):
+    img_shape = image.shape
+    d0 = random.randint(0, img_shape[0]-crop_shape[0])
+    d1 = random.randint(0, img_shape[1]-crop_shape[1])
+    cropped = image[d0:d0+crop_shape[0], d1:d1+crop_shape[1], :]
+    if(flip):
+        fliph = random.randint(0,1)
+        flipv = random.randint(0,1)
+        if(fliph==1):
+            cropped = np.fliplr(cropped)
+        if(flipv==1):
+            cropped = np.flipud(cropped)
+
+    return cropped
+
+def random_data_generator(data, image_shape, crop_shape, flip=True):
+    size = data.shape[0]
+    rand = random.Random()
+    rand.seed(0)
+    while True:
+        yield random_transform(np.reshape(data[rand.randrange(size), :], image_shape), crop_shape, flip)
+
+def random_labels_generator(labels):
+    size = data.shape[0]
+    rand = random.Random()
+    rand.seed(0)
+    while True:
+        yield labels[rand.randrange(size)]
+
+
+
+
+
+
 if __name__ == '__main__':
     filenames, labels = labels_list(conf("labels"))
     # job_pick_and_move(conf("img_small"), conf("img_balanced"), filenames, labels)
     print "loading dataset..."
-    full_data, full_labels, full_onehot, dummy_data, dummy_labels, dummy_onehot = read_all_data(dummy_size=10, return_dummy=True)
+    full_data, full_labels, full_onehot, dummy_data, dummy_labels, dummy_onehot = read_all_data(dummy_size=10)
     print "dataset loaded"
 
     # print "preprocessing dataset..."
