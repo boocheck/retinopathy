@@ -261,17 +261,33 @@ def random_data_generator(data, image_shape, crop_shape, flip=True):
     while True:
         yield random_transform(np.reshape(data[rand.randrange(size), :], image_shape), crop_shape, flip).ravel()
 
+def random_data_generator_debug(data, image_shape, crop_shape):
+    data_cropped = crop_center(data, image_shape, crop_shape)
+    size = data_cropped.shape[0]
+    rand = random.Random()
+    rand.seed(0)
+    while True:
+        yield data_cropped[rand.randrange(size), :]
+
+
 def random_labels_generator(labels):
     size = labels.shape[0]
     rand = random.Random()
     rand.seed(0)
     while True:
-        yield labels[rand.randrange(size)]
+        yield labels[[rand.randrange(size)]]
+
+def crop_center(data, image_shape, crop_shape):
+    start0 = (image_shape[0]-crop_shape[0])/2
+    start1 = (image_shape[1] - crop_shape[1])/2
+    return data.reshape([-1, image_shape[0], image_shape[1], image_shape[2]])[:, start0:start0+crop_shape[0], start1:start1+crop_shape[1], :]\
+        .reshape([-1, crop_shape[0]*crop_shape[1]*image_shape[2]])
 
 if __name__ == '__main__':
-    regression = True
-    debug = True
-    print "regression={} debug={}".format(regression, debug)
+    saving = False
+    regression = False
+    debug = False
+    print "regression={} debug={} saving={}".format(regression, debug, saving)
 
     filenames, labels = labels_list(conf("labels"))
     # job_pick_and_move(conf("img_small"), conf("img_balanced"), filenames, labels)
@@ -287,14 +303,14 @@ if __name__ == '__main__':
     if debug:
         data, labels, onehot = dummy_data, dummy_labels, dummy_onehot
         train_data, test_data, train_labels, test_labels = data, data, labels, labels
+        train_data_gen = random_data_generator_debug(train_data, [128, 128, 3], [120, 120])
     else:
         data, labels, onehot = full_data, full_labels, full_onehot
-        train_data, test_data, train_labels, test_labels = train_test_split(data, labels, train_size=0.9,
-                                                                            random_state=42)
+        train_data, test_data, train_labels, test_labels = train_test_split(data, labels, train_size=0.9, random_state=42)
+        train_data_gen = random_data_generator(train_data, [128, 128, 3], [120, 120])
 
-    train_data_gen = random_data_generator(train_data, [128, 128, 3], [120, 120])
     train_labels_gen = random_labels_generator(train_labels)
-    test_data_cropped = test_data.reshape([-1,128,128,3])[:, 4:124, 4:124, :].reshape([-1, 120*120*3])
+    test_data_cropped = crop_center(test_data, [128, 128, 3], [120, 120])
 
     print "data"
     print data.shape
@@ -319,23 +335,25 @@ if __name__ == '__main__':
         if debug:
             steps=10
         else:
-            steps = 100;
+            steps = 1000
 
         if regression:
             last = 1
+            n_classes = 0
         else:
             last = 5
+            n_classes = 5
 
-        cls = ln.TensorFlowEstimator(model_fn = create_model(120,120,3, [[3, 3, 16], [4, 4, 32], [5, 5, 64]], [192, last], True, regression=regression),
-                                     n_classes=5, continue_training=True, learning_rate=10e-5, optimizer="RMSProp", steps=steps, batch_size=64, config=ln.RunConfig(num_cores=24))
-        # cls = ln.dnn.TensorFlowDNNClassifier([3500, 5], n_classes=5, continue_training=True, steps=100, batch_size=128)
+        cls = ln.TensorFlowEstimator(model_fn = create_model(120,120,3, [[3, 3, 16], [4, 4, 32], [5, 5, 64]], [200, last], True, regression=regression),
+                                     n_classes=n_classes, continue_training=True, learning_rate=10e-5, optimizer="Adam", steps=steps, batch_size=32, config=ln.RunConfig(num_cores=24))
         print "model created"
         print "fitting..."
         cls.fit(train_data_gen, train_labels_gen)
         print "fitted"
-        print "saving..."
-        cls.save("cls.dump")
-        print "saved"
+        if saving:
+            print "saving..."
+            cls.save("cls.dump")
+            print "saved"
 
     for i in xrange(1000):
         print "i={}".format(i)
@@ -346,16 +364,19 @@ if __name__ == '__main__':
         predicted = cls.predict(test_data_cropped)
         print "predicted"
         if regression:
+            pred_raveled = predicted.ravel()
             print "lab, pred"
-            print np.stack([test_labels, predicted], 1)
-            print "mae={}".format(me.mean_absolute_error(test_labels, predicted))
+            print np.stack([test_labels, pred_raveled], 1)
+            print "mae={}".format(me.mean_absolute_error(test_labels, pred_raveled))
+            print "mse={}".format(me.mean_squared_error(test_labels, pred_raveled))
         else:
             print "acc={}".format(me.accuracy_score(test_labels, predicted))
             print "confusion matrix"
             print me.confusion_matrix(test_labels, predicted)
-        print "saving..."
-        cls.save("cls.dump")
-        print "saved"
+        if saving:
+            print "saving..."
+            cls.save("cls.dump")
+            print "saved"
 
 
 
