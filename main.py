@@ -271,6 +271,8 @@ def random_labels_generator(labels):
 if __name__ == '__main__':
     regression = True
     debug = True
+    print "regression={} debug={}".format(regression, debug)
+
     filenames, labels = labels_list(conf("labels"))
     # job_pick_and_move(conf("img_small"), conf("img_balanced"), filenames, labels)
     print "loading dataset..."
