@@ -346,7 +346,7 @@ if __name__ == '__main__':
             last = 5
             n_classes = 5
 
-        cls = ln.TensorFlowEstimator(model_fn = create_model(120,120,3, [[3, 3, 16], [4, 4, 32], [5, 5, 64]], [300, last], True, regression=regression),
+        cls = ln.TensorFlowEstimator(model_fn = create_model(120,120,3, [[3, 3, 16], [4, 4, 32], [5, 5, 64]], [100, last], True, regression=regression),
                                      n_classes=n_classes, continue_training=True, learning_rate=10e-5, optimizer="Adam", steps=steps, batch_size=32, config=ln.RunConfig(num_cores=24))
         print "model created"
         print "fitting..."
