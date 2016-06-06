@@ -2,6 +2,7 @@ import platform as pl
 import numpy as np
 from numpy.random.mtrand import RandomState
 from scipy import misc
+from scipy import stats
 import os
 import multiprocessing
 import shutil
@@ -262,7 +263,7 @@ def random_data_generator(data, image_shape, crop_shape, flip=True):
         yield random_transform(np.reshape(data[rand.randrange(size), :], image_shape), crop_shape, flip).ravel()
 
 def random_data_generator_debug(data, image_shape, crop_shape):
-    data_cropped = crop_center(data, image_shape, crop_shape)
+    data_cropped = crop(data, image_shape, crop_shape)
     size = data_cropped.shape[0]
     rand = random.Random()
     rand.seed(0)
@@ -277,14 +278,14 @@ def random_labels_generator(labels):
     while True:
         yield labels[[rand.randrange(size)]]
 
-def crop_center(data, image_shape, crop_shape):
-    start0 = (image_shape[0]-crop_shape[0])/2
-    start1 = (image_shape[1] - crop_shape[1])/2
-    return data.reshape([-1, image_shape[0], image_shape[1], image_shape[2]])[:, start0:start0+crop_shape[0], start1:start1+crop_shape[1], :]\
+def crop(data, image_shape, crop_shape, offset=None):
+    if offset == None:
+        offset = [(image_shape[0]-crop_shape[0])/2, (image_shape[1] - crop_shape[1])/2]
+    return data.reshape([-1, image_shape[0], image_shape[1], image_shape[2]])[:, offset[0]:offset[0]+crop_shape[0], offset[1]:offset[1]+crop_shape[1], :]\
         .reshape([-1, crop_shape[0]*crop_shape[1]*image_shape[2]])
 
 if __name__ == '__main__':
-    saving = False
+    saving = True
     regression = False
     debug = False
     print "regression={} debug={} saving={}".format(regression, debug, saving)
@@ -310,7 +311,8 @@ if __name__ == '__main__':
         train_data_gen = random_data_generator(train_data, [128, 128, 3], [120, 120])
 
     train_labels_gen = random_labels_generator(train_labels)
-    test_data_cropped = crop_center(test_data, [128, 128, 3], [120, 120])
+    test_data_cropped = crop(test_data, [128, 128, 3], [120, 120])
+    test_data_multi_cropped = map(lambda x: crop(test_data, [128, 128, 3], [120, 120], x), [[4,4], [0,0], [0,8], [8,0], [8,8]])
 
     print "data"
     print data.shape
@@ -344,7 +346,7 @@ if __name__ == '__main__':
             last = 5
             n_classes = 5
 
-        cls = ln.TensorFlowEstimator(model_fn = create_model(120,120,3, [[3, 3, 16], [4, 4, 32], [5, 5, 64]], [200, last], True, regression=regression),
+        cls = ln.TensorFlowEstimator(model_fn = create_model(120,120,3, [[3, 3, 16], [4, 4, 32], [5, 5, 64]], [300, last], True, regression=regression),
                                      n_classes=n_classes, continue_training=True, learning_rate=10e-5, optimizer="Adam", steps=steps, batch_size=32, config=ln.RunConfig(num_cores=24))
         print "model created"
         print "fitting..."
@@ -360,19 +362,35 @@ if __name__ == '__main__':
         print "fitting..."
         cls.partial_fit(train_data_gen, train_labels_gen)
         print "fitted"
-        print "predicting..."
-        predicted = cls.predict(test_data_cropped)
-        print "predicted"
         if regression:
+            print "predicting..."
+            predicted = cls.predict(test_data_cropped)
+            print "predicted"
             pred_raveled = predicted.ravel()
             print "lab, pred"
             print np.stack([test_labels, pred_raveled], 1)
             print "mae={}".format(me.mean_absolute_error(test_labels, pred_raveled))
             print "mse={}".format(me.mean_squared_error(test_labels, pred_raveled))
         else:
-            print "acc={}".format(me.accuracy_score(test_labels, predicted))
+            print "predicting..."
+            predicted = map(lambda x: cls.predict(x), test_data_multi_cropped)
+            print "predicted"
+
+            print "predictions:"
+            predictions = np.stack(predicted, 1)
+            print predictions
+            not_unanimous = []
+            for i in xrange(predictions.shape[0]):
+                if np.unique(predictions[i,:]).size > 1:
+                    not_unanimous.append(i)
+            predicted_vote = stats.mode(predictions, 1)[0].ravel()
+            print "not unanimous={}, {}".format(len(not_unanimous), not_unanimous)
+            print "acc={}".format(me.accuracy_score(test_labels, predicted[0]))
             print "confusion matrix"
-            print me.confusion_matrix(test_labels, predicted)
+            print me.confusion_matrix(test_labels, predicted[0])
+            print "acc [VOTE]={}".format(me.accuracy_score(test_labels, predicted_vote))
+            print "confusion matrix[VOTE]"
+            print me.confusion_matrix(test_labels, predicted_vote)
         if saving:
             print "saving..."
             cls.save("cls.dump")
